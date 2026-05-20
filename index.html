@@ -229,18 +229,29 @@ let coUserCount = 0;
 let reservations = [];
 let isLoading = false;
 
+function getKSTDate(){
+  const now=new Date();
+  const kst=new Date(now.getTime()+9*60*60*1000);
+  return kst;
+}
+
+function getKSTDateStr(){
+  return getKSTDate().toISOString().slice(0,10);
+}
+
 function getThisWeekMonday(){
-  const today=new Date();
-  const mon=new Date(today);
-  mon.setDate(today.getDate()-((today.getDay()+6)%7));
-  mon.setHours(0,0,0,0);
+  const kst=getKSTDate();
+  const dow=kst.getUTCDay();
+  const mon=new Date(kst);
+  mon.setUTCDate(kst.getUTCDate()-((dow+6)%7));
+  mon.setUTCHours(0,0,0,0);
   return mon;
 }
 
 function getThisWeekFriday(){
   const mon=getThisWeekMonday();
   const fri=new Date(mon);
-  fri.setDate(mon.getDate()+4);
+  fri.setUTCDate(mon.getUTCDate()+4);
   return fri;
 }
 
@@ -311,10 +322,12 @@ function showLoadingOverlay(show) {
 }
 
 function getWeekDates(){
-  const today=new Date();
-  const mon=new Date(today);
-  mon.setDate(today.getDate()-((today.getDay()+6)%7)+weekOffset*7);
-  return Array.from({length:5},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d;});
+  const kst=getKSTDate();
+  const dow=kst.getUTCDay();
+  const mon=new Date(kst);
+  mon.setUTCDate(kst.getUTCDate()-((dow+6)%7)+weekOffset*7);
+  mon.setUTCHours(0,0,0,0);
+  return Array.from({length:5},(_,i)=>{const d=new Date(mon);d.setUTCDate(mon.getUTCDate()+i);return d;});
 }
 
 function addCoUser(){
@@ -455,11 +468,13 @@ function renderCalendar(){
 }
 
 function isSlotPast(dateStr, slot){
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0,10);
-  if(dateStr !== todayStr) return dateStr < todayStr;
+  const now = getKSTDate();
+  const todayKST = getKSTDateStr();
+  if(dateStr !== todayKST) return dateStr < todayKST;
   const [h,m] = slot.start.split(':').map(Number);
-  return now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
+  const nowH = now.getUTCHours();
+  const nowM = now.getUTCMinutes();
+  return nowH > h || (nowH === h && nowM >= m);
 }
 
 function updateSlots(){
@@ -717,10 +732,10 @@ function positionTip(e){
 }
 
 // ---- 초기화 ----
-const todayStr=new Date().toISOString().slice(0,10);
+const todayStr=getKSTDateStr();
 const monStr=getThisWeekMonday().toISOString().slice(0,10);
 const friStr=getThisWeekFriday().toISOString().slice(0,10);
-const todayDow=new Date().getDay();
+const todayDow=getKSTDate().getUTCDay();
 const isWeekend=(todayDow===0||todayDow===6);
 
 if(isWeekend){
