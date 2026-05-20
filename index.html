@@ -112,9 +112,12 @@ input:checked+.toggle-slider:before{transform:translateX(16px)}
   </div>
   <div style="background:#EEF2FB;border:1px solid #C5D3F0;border-radius:var(--border-radius-md);padding:14px 18px;font-size:14px;color:#3A4E8C;margin-bottom:12px;line-height:1.7">
     📌 <strong>예약 규칙 안내</strong><br>
+    · 예약은 <strong>매주 월요일</strong>에 열립니다<br>
+    · <strong>각 시간대 시작 전까지만</strong> 예약 가능합니다 (시작 후 신청 불가)<br>
     · 같은 날 2타임 연속 예약 가능<br>
     · 이틀 연속 예약 가능<br>
-    · <strong>3일 연속 예약은 불가</strong>합니다 (대표자 및 동반 학생 모두 해당)<br>
+    · <strong>3일 연속 예약은 불가</strong>합니다 (금, 월, 화 불가 / 대표자 및 동반 학생 모두 해당)<br>
+    · <strong>예약을 했으면 반드시 그 자리를 지켜주세요</strong><br>
     · 공부가 끝난 후 자리를 깨끗이 치우고 퇴실해주세요<br>
     · 동일 시간대 예약이 겹칠 경우 <strong>먼저 예약한 팀을 우선</strong>으로 합니다<br>
     · 퇴실 후 자리가 더럽다는 민원이 접수되면 <strong>스터디룸 사용이 제한</strong>될 수 있습니다
@@ -127,9 +130,7 @@ input:checked+.toggle-slider:before{transform:translateX(16px)}
     <div class="legend-item"><div class="legend-dot" style="background:var(--color-background-tertiary);border:0.5px solid var(--color-border-tertiary)"></div>운영 안 함</div>
   </div>
   <div class="week-nav">
-    <button onclick="changeWeek(-1)"><i class="ti ti-chevron-left"></i></button>
     <span class="week-label" id="week-label"></span>
-    <button onclick="changeWeek(1)"><i class="ti ti-chevron-right"></i></button>
   </div>
   <div class="cal-wrap"><div class="cal-grid" id="cal-grid"></div></div>
 
@@ -181,10 +182,6 @@ input:checked+.toggle-slider:before{transform:translateX(16px)}
 </div>
 
 <div id="view-admin" class="view">
-  <div class="exam-toggle">
-    <label class="toggle-switch"><input type="checkbox" id="exam-mode" onchange="toggleExamMode()"><span class="toggle-slider"></span></label>
-    <span>시험기간 모드 <span id="exam-label" style="color:var(--color-text-secondary);font-size:12px">— 꺼짐 (롤링 예약)</span></span>
-  </div>
   <div class="stats">
     <div class="stat"><div class="stat-val" id="st-total">0</div><div class="stat-lbl">전체 예약</div></div>
     <div class="stat"><div class="stat-val" id="st-pending" style="color:#854F0B">0</div><div class="stat-lbl">승인 대기</div></div>
@@ -231,6 +228,23 @@ let examMode = false;
 let coUserCount = 0;
 let reservations = [];
 let isLoading = false;
+
+function getThisWeekMonday(){
+  const today=new Date();
+  const mon=new Date(today);
+  mon.setDate(today.getDate()-((today.getDay()+6)%7));
+  mon.setHours(0,0,0,0);
+  return mon;
+}
+
+function getThisWeekFriday(){
+  const mon=getThisWeekMonday();
+  const fri=new Date(mon);
+  fri.setDate(mon.getDate()+4);
+  return fri;
+}
+
+function changeWeek(d){ /* 이번 주만 허용 — 이동 불가 */ }
 
 function getDateStr(offsetDays){
   const d=new Date(); d.setDate(d.getDate()+offsetDays);
@@ -405,7 +419,7 @@ function renderCalendar(){
       const cell=document.createElement('div');
       cell.className='cal-cell'+(isLast?' row-last':'');
 
-      if(!available){
+      if(!available || isSlotPast(ds, slot)){
         cell.classList.add('closed');
         cell.innerHTML='<div class="closed-x">—</div>';
       } else {
@@ -440,6 +454,14 @@ function renderCalendar(){
   });
 }
 
+function isSlotPast(dateStr, slot){
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0,10);
+  if(dateStr !== todayStr) return dateStr < todayStr;
+  const [h,m] = slot.start.split(':').map(Number);
+  return now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
+}
+
 function updateSlots(){
   const dateStr=document.getElementById('f-date').value;
   const slots=getSlotsForDate(dateStr);
@@ -448,7 +470,15 @@ function updateSlots(){
     sel.innerHTML='<option>해당 날짜는 운영하지 않습니다</option>';
     return;
   }
-  sel.innerHTML=slots.map((s,i)=>`<option value="${i}">${s.label}</option>`).join('');
+  const available = slots.filter((s,i) => !isSlotPast(dateStr, s));
+  if(!available.length){
+    sel.innerHTML='<option>오늘 예약 가능한 시간대가 없습니다</option>';
+    return;
+  }
+  sel.innerHTML=available.map((s,i)=>{
+    const realIdx = slots.indexOf(s);
+    return `<option value="${realIdx}">${s.label}</option>`;
+  }).join('');
 }
 
 function showAlert(type,msg){
@@ -465,15 +495,47 @@ function getReservedDates(sid){
     .map(r=>r.date);
 }
 
+function getOperatingDays(dateStr, rangeBack, rangeFwd){
+  const result=[];
+  const base=new Date(dateStr);
+  let cur=new Date(base);
+  cur.setDate(base.getDate()-rangeBack*7);
+  const end=new Date(base);
+  end.setDate(base.getDate()+rangeFwd*7);
+  while(cur<=end){
+    const dow=cur.getDay();
+    if(dow>=1&&dow<=5) result.push(cur.toISOString().slice(0,10));
+    cur.setDate(cur.getDate()+1);
+  }
+  return result;
+}
+
+function getOperatingIndex(dateStr){
+  const base=new Date(dateStr);
+  const start=new Date(base);
+  start.setDate(base.getDate()-14);
+  let idx=0;
+  const map={};
+  const cur=new Date(start);
+  while(cur<=new Date(new Date(base).setDate(base.getDate()+14))){
+    const dow=cur.getDay();
+    if(dow>=1&&dow<=5){
+      map[cur.toISOString().slice(0,10)]=idx++;
+    }
+    cur.setDate(cur.getDate()+1);
+  }
+  return map;
+}
+
 function isThreeConsecutive(sid,date){
   const reserved=getReservedDates(sid);
-  const d=new Date(date);
-  const check=(offsetA,offsetB)=>{
-    const a=new Date(d); a.setDate(d.getDate()+offsetA);
-    const b=new Date(d); b.setDate(d.getDate()+offsetB);
-    return reserved.includes(a.toISOString().slice(0,10))&&reserved.includes(b.toISOString().slice(0,10));
-  };
-  return check(-2,-1)||check(-1,1)||check(1,2);
+  const indexMap=getOperatingIndex(date);
+  const targetIdx=indexMap[date];
+  if(targetIdx===undefined) return false;
+  const hasIdx=(i)=>Object.keys(indexMap).some(d=>indexMap[d]===i&&reserved.includes(d));
+  return (hasIdx(targetIdx-2)&&hasIdx(targetIdx-1))
+      ||(hasIdx(targetIdx-1)&&hasIdx(targetIdx+1))
+      ||(hasIdx(targetIdx+1)&&hasIdx(targetIdx+2));
 }
 
 async function submitReservation(){
@@ -520,12 +582,16 @@ async function submitReservation(){
   }
 
   const overlap=reservations.find(r=>r.room===room&&r.date===date&&r.slotIdx===slotIdx&&r.status!=='cancelled'&&r.status!=='denied');
-  if(overlap){showAlert('err','해당 슬롯에 이미 예약이 있습니다.');return;}
+  const autoStatus = overlap ? 'pending' : 'approved';
 
   try {
     showLoadingOverlay(true);
-    await apiPost({ action:'add', reservation:{name,sid,room,date,slotIdx,purpose,coUsers} });
-    showAlert('success','예약 신청 완료! 관리자 승인 후 확정됩니다.');
+    await apiPost({ action:'add', reservation:{name,sid,room,date,slotIdx,purpose,coUsers,status:autoStatus} });
+    if(autoStatus==='approved'){
+      showAlert('success','예약이 완료되었습니다! ✅');
+    } else {
+      showAlert('warn','같은 시간대에 이미 예약이 있어 대기 상태로 접수되었습니다. 선생님 확인 후 승인됩니다.');
+    }
     document.getElementById('co-users').innerHTML='';
     document.getElementById('f-name').value='';
     document.getElementById('f-purpose').value='';
@@ -652,7 +718,28 @@ function positionTip(e){
 
 // ---- 초기화 ----
 const todayStr=new Date().toISOString().slice(0,10);
-document.getElementById('f-date').value=todayStr;
-updateSlots();
+const monStr=getThisWeekMonday().toISOString().slice(0,10);
+const friStr=getThisWeekFriday().toISOString().slice(0,10);
+const todayDow=new Date().getDay();
+const isWeekend=(todayDow===0||todayDow===6);
+
+if(isWeekend){
+  const studentView=document.getElementById('view-student');
+  studentView.innerHTML=`
+    <div style="text-align:center;padding:3rem 1rem">
+      <div style="font-size:48px;margin-bottom:1rem">📅</div>
+      <div style="font-size:20px;font-weight:600;margin-bottom:8px;color:var(--color-text-primary)">주말에는 예약을 받지 않아요</div>
+      <div style="font-size:14px;color:var(--color-text-secondary);line-height:1.8">
+        예약은 <strong>월요일 ~ 금요일</strong>에만 가능합니다.<br>
+        월요일 오전에 다시 방문해 주세요! 😊
+      </div>
+    </div>`;
+} else {
+  const fdate=document.getElementById('f-date');
+  fdate.min=monStr;
+  fdate.max=friStr;
+  fdate.value=(todayDow>=1&&todayDow<=5)?todayStr:monStr;
+  updateSlots();
+}
 loadReservations();
 </script>
